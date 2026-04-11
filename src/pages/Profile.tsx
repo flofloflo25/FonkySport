@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   User, Target, TrendingUp, Zap, ChevronRight, AlertTriangle,
-  Trash2, Check, Edit3, Weight
+  Trash2, Check, Edit3, Weight, Key, Eye, EyeOff, Sparkles
 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import type { GoalType, ExperienceLevel } from '@/types';
@@ -91,20 +91,25 @@ function EditModal({
 // ── Main Profile Page ─────────────────────────────────────────────────────────
 
 export default function ProfilePage() {
-  const { user, sessions, personalRecords, updateUser } = useStore(s => ({
+  const { user, sessions, personalRecords, updateUser, anthropicApiKey, setAnthropicApiKey } = useStore(s => ({
     user: s.user,
     sessions: s.sessions,
     personalRecords: s.personalRecords,
     updateUser: s.updateUser,
+    anthropicApiKey: s.anthropicApiKey,
+    setAnthropicApiKey: s.setAnthropicApiKey,
   }));
 
   const [editName, setEditName] = useState(false);
   const [editGoal, setEditGoal] = useState(false);
   const [editLevel, setEditLevel] = useState(false);
   const [editBodyweight, setEditBodyweight] = useState(false);
+  const [editApiKey, setEditApiKey] = useState(false);
   const [showReset, setShowReset] = useState(false);
   const [tempName, setTempName] = useState(user.name);
   const [tempBW, setTempBW] = useState(String(user.bodyweight ?? ''));
+  const [tempApiKey, setTempApiKey] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
 
   const completedSessions = sessions.filter(s => s.completed);
   const totalVolume = sessions
@@ -192,6 +197,18 @@ export default function ProfilePage() {
             label="Niveau"
             value={levelLabel}
             onClick={() => setEditLevel(true)}
+          />
+        </Section>
+      </div>
+
+      {/* AI Coach section */}
+      <div className="px-4">
+        <Section title="Coach IA">
+          <Row
+            icon={<Key size={16} />}
+            label="Clé API Anthropic"
+            value={anthropicApiKey ? '••••••••' + anthropicApiKey.slice(-4) : 'Non configurée'}
+            onClick={() => { setTempApiKey(''); setShowApiKey(false); setEditApiKey(true); }}
           />
         </Section>
       </div>
@@ -319,6 +336,52 @@ export default function ProfilePage() {
                 <span className="text-sm font-semibold">{l.label}</span>
               </button>
             ))}
+          </div>
+        </EditModal>
+      )}
+
+      {editApiKey && (
+        <EditModal title="Clé API Anthropic" onClose={() => setEditApiKey(false)}>
+          <p className="text-xs text-slate-400 mb-3 leading-relaxed">
+            Nécessaire pour le Coach IA. Stockée uniquement sur ton appareil.{' '}
+            {anthropicApiKey && <span className="text-orange-400">Clé actuelle : ••••{anthropicApiKey.slice(-4)}</span>}
+          </p>
+          <div className="relative mb-4">
+            <input
+              type={showApiKey ? 'text' : 'password'}
+              value={tempApiKey}
+              onChange={e => setTempApiKey(e.target.value)}
+              placeholder={anthropicApiKey ? 'Nouvelle clé (laisser vide pour garder)' : 'sk-ant-api03-...'}
+              autoFocus
+              className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 pr-10 font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => setShowApiKey(v => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+            >
+              {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+          <div className="flex gap-2">
+            {anthropicApiKey && (
+              <button
+                onClick={() => { setAnthropicApiKey(''); setEditApiKey(false); }}
+                className="py-2.5 px-4 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl text-sm font-medium transition-colors"
+              >
+                Supprimer
+              </button>
+            )}
+            <button
+              onClick={() => {
+                const k = tempApiKey.trim();
+                if (k) setAnthropicApiKey(k);
+                setEditApiKey(false);
+              }}
+              className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-400 rounded-xl text-sm font-bold transition-colors"
+            >
+              {tempApiKey.trim() ? 'Enregistrer' : 'Fermer'}
+            </button>
           </div>
         </EditModal>
       )}

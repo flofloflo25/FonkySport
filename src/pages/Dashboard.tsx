@@ -6,6 +6,7 @@ import { getMuscleGroupStatuses } from '@/utils/recommendations';
 import { sessionVolume } from '@/utils/calculations';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import AIWorkoutGenerator from '@/components/AIWorkoutGenerator';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -188,6 +189,9 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* AI Workout Generator */}
+      <AIWorkoutGenerator />
 
       {/* Smart recommendations */}
       {topRecommendations.length > 0 && (

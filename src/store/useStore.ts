@@ -35,6 +35,7 @@ interface State {
   user: UserProfile;
   sessions: WorkoutSession[];
   personalRecords: PersonalRecord[];
+  anthropicApiKey: string;
 
   // Transient UI
   currentPage: Page;
@@ -43,12 +44,14 @@ interface State {
   // ── User actions ────────────────────────────────────────────────────────────
   updateUser: (patch: Partial<UserProfile>) => void;
   completeSetup: (profile: UserProfile) => void;
+  setAnthropicApiKey: (key: string) => void;
 
   // ── Navigation ──────────────────────────────────────────────────────────────
   navigate: (page: Page) => void;
 
   // ── Workout actions ─────────────────────────────────────────────────────────
   startWorkout: (name: string) => void;
+  startWorkoutWithPlan: (name: string, exerciseIds: string[]) => void;
   cancelWorkout: () => void;
   addExerciseToWorkout: (exerciseId: string) => void;
   removeExerciseFromWorkout: (index: number) => void;
@@ -90,6 +93,7 @@ export const useStore = create<State>()(
       },
       sessions: [],
       personalRecords: [],
+      anthropicApiKey: '',
       currentPage: 'dashboard',
       activeWorkout: null,
 
@@ -100,6 +104,8 @@ export const useStore = create<State>()(
 
       completeSetup: (profile) =>
         set({ user: { ...profile, setupDone: true } }),
+
+      setAnthropicApiKey: (key) => set({ anthropicApiKey: key }),
 
       // ── Navigation ────────────────────────────────────────────────────────
 
@@ -118,6 +124,33 @@ export const useStore = create<State>()(
         }),
 
       cancelWorkout: () => set({ activeWorkout: null }),
+
+      startWorkoutWithPlan: (name, exerciseIds) => {
+        const s = get();
+        const exercises: WorkoutExercise[] = exerciseIds
+          .filter(id => EXERCISE_MAP.has(id))
+          .map(exerciseId => {
+            const lastSession = [...s.sessions]
+              .filter(sess => sess.completed && sess.exercises.some(e => e.exerciseId === exerciseId))
+              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+
+            let initialSets: SetLog[];
+            if (lastSession) {
+              const lastEx = lastSession.exercises.find(e => e.exerciseId === exerciseId)!;
+              initialSets = lastEx.sets.map(s => ({
+                id: uid(), weight: s.weight, reps: s.reps, completed: false,
+              }));
+            } else {
+              initialSets = [defaultSet(), defaultSet(), defaultSet()];
+            }
+            return { exerciseId, sets: initialSets };
+          });
+
+        set({
+          activeWorkout: { name, startTime: new Date().toISOString(), exercises },
+          currentPage: 'workout',
+        });
+      },
 
       addExerciseToWorkout: (exerciseId) =>
         set(s => {
@@ -365,6 +398,7 @@ export const useStore = create<State>()(
         user: state.user,
         sessions: state.sessions,
         personalRecords: state.personalRecords,
+        anthropicApiKey: state.anthropicApiKey,
       }),
     }
   )
