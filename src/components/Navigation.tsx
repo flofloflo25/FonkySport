@@ -1,14 +1,14 @@
 import React from 'react';
-import { LayoutDashboard, Dumbbell, History, TrendingUp, User, type LucideIcon } from 'lucide-react';
+import { LayoutDashboard, Dumbbell, BookOpen, TrendingUp, User, type LucideIcon } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import type { Page } from '@/types';
 
 const TABS: { id: Page; label: string; Icon: LucideIcon }[] = [
-  { id: 'dashboard', label: 'Accueil',   Icon: LayoutDashboard },
-  { id: 'workout',   label: 'Session',   Icon: Dumbbell },
-  { id: 'history',   label: 'Historique',Icon: History },
-  { id: 'progress',  label: 'Progrès',   Icon: TrendingUp },
-  { id: 'profile',   label: 'Profil',    Icon: User },
+  { id: 'dashboard', label: 'Accueil', Icon: LayoutDashboard },
+  { id: 'programs',  label: 'Plans',   Icon: BookOpen },
+  { id: 'workout',   label: 'Séance',  Icon: Dumbbell },
+  { id: 'progress',  label: 'Progrès', Icon: TrendingUp },
+  { id: 'profile',   label: 'Profil',  Icon: User },
 ];
 
 export default function Navigation() {
@@ -35,7 +35,7 @@ export default function Navigation() {
               {isWorkout && activeWorkout && (
                 <span className="absolute top-2 right-1/2 translate-x-4 w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
               )}
-              <Icon size={22} />
+              <Icon size={20} />
               <span className="text-[10px] font-medium leading-none">{label}</span>
               {active && (
                 <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-orange-500 rounded-full" />

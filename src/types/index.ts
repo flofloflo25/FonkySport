@@ -102,7 +102,7 @@ export interface Recommendation {
 
 // ── Navigation ────────────────────────────────────────────────────────────────
 
-export type Page = 'dashboard' | 'workout' | 'history' | 'progress' | 'profile';
+export type Page = 'dashboard' | 'workout' | 'history' | 'progress' | 'profile' | 'programs';
 
 // ── Chart helpers ─────────────────────────────────────────────────────────────
 

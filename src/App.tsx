@@ -7,12 +7,14 @@ import WorkoutPage from '@/pages/Workout';
 import HistoryPage from '@/pages/History';
 import ProgressPage from '@/pages/Progress';
 import ProfilePage from '@/pages/Profile';
+import ProgramsPage from '@/pages/Programs';
 
 function PageContent() {
   const currentPage = useStore(s => s.currentPage);
 
   switch (currentPage) {
     case 'dashboard': return <Dashboard />;
+    case 'programs':  return <ProgramsPage />;
     case 'workout':   return <WorkoutPage />;
     case 'history':   return <HistoryPage />;
     case 'progress':  return <ProgressPage />;
