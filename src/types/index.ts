@@ -68,6 +68,8 @@ export interface ActiveWorkout {
   name: string;
   startTime: string;     // ISO 8601
   exercises: WorkoutExercise[];
+  warmupSteps?: string[];
+  cooldownSteps?: string[];
 }
 
 // ── Analytics ─────────────────────────────────────────────────────────────────

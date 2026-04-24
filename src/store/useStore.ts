@@ -13,7 +13,11 @@ import type {
   ExperienceLevel,
 } from '@/types';
 import { EXERCISES, EXERCISE_MAP } from '@/data/exercises';
-import { best1RMFromSets, exerciseVolume, estimate1RM, maxWeightInSession } from '@/utils/calculations';
+import {
+  best1RMFromSets, exerciseVolume, estimate1RM, maxWeightInSession,
+  DEFAULT_WEIGHTS, TIME_BASED_EXERCISES, DEFAULT_DURATIONS, DEFAULT_REPS,
+  warmupWeightFor,
+} from '@/utils/calculations';
 import { getRecommendation } from '@/utils/recommendations';
 
 // ── ID generator ──────────────────────────────────────────────────────────────
@@ -22,10 +26,46 @@ function uid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-// ── Default set template ──────────────────────────────────────────────────────
+// ── Build initial sets for an exercise ───────────────────────────────────────
 
-function defaultSet(): SetLog {
-  return { id: uid(), weight: 0, reps: 0, completed: false };
+function buildInitialSets(
+  exerciseId: string,
+  sessions: WorkoutSession[],
+  targetSetCount = 3,
+): SetLog[] {
+  const lastSession = [...sessions]
+    .filter(s => s.completed && s.exercises.some(e => e.exerciseId === exerciseId))
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+
+  if (lastSession) {
+    const lastEx = lastSession.exercises.find(e => e.exerciseId === exerciseId)!;
+    const sets: SetLog[] = lastEx.sets.map((s, i) => ({
+      id: uid(),
+      weight: i === 0 ? warmupWeightFor(s.weight) : s.weight,
+      reps: s.reps,
+      completed: false,
+    }));
+    // Pad up to targetSetCount if needed
+    while (sets.length < targetSetCount) {
+      const last = sets[sets.length - 1];
+      sets.push({ id: uid(), weight: last.weight, reps: last.reps, completed: false });
+    }
+    return sets;
+  }
+
+  // No history: use sensible defaults
+  const defWeight = DEFAULT_WEIGHTS[exerciseId] ?? 20;
+  const isTime = TIME_BASED_EXERCISES.has(exerciseId);
+  const defReps = isTime
+    ? (DEFAULT_DURATIONS[exerciseId] ?? 30)
+    : (DEFAULT_REPS[exerciseId] ?? 10);
+
+  return Array.from({ length: targetSetCount }, (_, i) => ({
+    id: uid(),
+    weight: i === 0 ? warmupWeightFor(defWeight) : defWeight,
+    reps: defReps,
+    completed: false,
+  }));
 }
 
 // ── Store interface ───────────────────────────────────────────────────────────
@@ -51,7 +91,14 @@ interface State {
 
   // ── Workout actions ─────────────────────────────────────────────────────────
   startWorkout: (name: string) => void;
-  startWorkoutWithPlan: (name: string, exerciseIds: string[]) => void;
+  startWorkoutWithPlan: (
+    name: string,
+    exerciseIds: string[],
+    warmupSteps?: string[],
+    cooldownSteps?: string[],
+    setCountPerExercise?: number[],
+  ) => void;
+  replaceExerciseInWorkout: (exerciseIndex: number, newExerciseId: string) => void;
   cancelWorkout: () => void;
   addExerciseToWorkout: (exerciseId: string) => void;
   removeExerciseFromWorkout: (index: number) => void;
@@ -125,61 +172,41 @@ export const useStore = create<State>()(
 
       cancelWorkout: () => set({ activeWorkout: null }),
 
-      startWorkoutWithPlan: (name, exerciseIds) => {
+      startWorkoutWithPlan: (name, exerciseIds, warmupSteps, cooldownSteps, setCountPerExercise) => {
         const s = get();
         const exercises: WorkoutExercise[] = exerciseIds
           .filter(id => EXERCISE_MAP.has(id))
-          .map(exerciseId => {
-            const lastSession = [...s.sessions]
-              .filter(sess => sess.completed && sess.exercises.some(e => e.exerciseId === exerciseId))
-              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-
-            let initialSets: SetLog[];
-            if (lastSession) {
-              const lastEx = lastSession.exercises.find(e => e.exerciseId === exerciseId)!;
-              initialSets = lastEx.sets.map(s => ({
-                id: uid(), weight: s.weight, reps: s.reps, completed: false,
-              }));
-            } else {
-              initialSets = [defaultSet(), defaultSet(), defaultSet()];
-            }
-            return { exerciseId, sets: initialSets };
-          });
-
+          .map((exerciseId, idx) => ({
+            exerciseId,
+            sets: buildInitialSets(exerciseId, s.sessions, setCountPerExercise?.[idx] ?? 3),
+          }));
         set({
-          activeWorkout: { name, startTime: new Date().toISOString(), exercises },
+          activeWorkout: { name, startTime: new Date().toISOString(), exercises, warmupSteps, cooldownSteps },
           currentPage: 'workout',
         });
+      },
+
+      replaceExerciseInWorkout: (exerciseIndex, newExerciseId) => {
+        const s = get();
+        if (!s.activeWorkout) return;
+        const oldWe = s.activeWorkout.exercises[exerciseIndex];
+        const exercises = s.activeWorkout.exercises.map((we, i) => {
+          if (i !== exerciseIndex) return we;
+          return {
+            exerciseId: newExerciseId,
+            sets: buildInitialSets(newExerciseId, s.sessions, oldWe.sets.length),
+          };
+        });
+        set({ activeWorkout: { ...s.activeWorkout, exercises } });
       },
 
       addExerciseToWorkout: (exerciseId) =>
         set(s => {
           if (!s.activeWorkout) return s;
-          // Pre-fill with last session data for this exercise
-          const lastSession = [...s.sessions]
-            .filter(sess => sess.completed && sess.exercises.some(e => e.exerciseId === exerciseId))
-            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-
-          let initialSets: SetLog[];
-          if (lastSession) {
-            const lastExercise = lastSession.exercises.find(e => e.exerciseId === exerciseId)!;
-            // Pre-fill with last weights (not completed)
-            initialSets = lastExercise.sets.map(s => ({
-              id: uid(),
-              weight: s.weight,
-              reps: s.reps,
-              completed: false,
-            }));
-          } else {
-            // New exercise: 3 empty sets
-            initialSets = [defaultSet(), defaultSet(), defaultSet()];
-          }
-
           const newExercise: WorkoutExercise = {
             exerciseId,
-            sets: initialSets,
+            sets: buildInitialSets(exerciseId, s.sessions),
           };
-
           return {
             activeWorkout: {
               ...s.activeWorkout,
@@ -204,7 +231,7 @@ export const useStore = create<State>()(
             const lastSet = we.sets[we.sets.length - 1];
             const newSet: SetLog = lastSet
               ? { id: uid(), weight: lastSet.weight, reps: lastSet.reps, completed: false }
-              : defaultSet();
+              : { id: uid(), weight: 0, reps: 0, completed: false };
             return { ...we, sets: [...we.sets, newSet] };
           });
           return { activeWorkout: { ...s.activeWorkout, exercises } };

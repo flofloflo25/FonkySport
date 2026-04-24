@@ -312,8 +312,13 @@ export default function ProgramsPage() {
   const [filter, setFilter]       = useState<Filter>('all');
 
   function handleStart(program: WorkoutProgram) {
-    const exerciseIds = program.exercises.map(e => e.exerciseId);
-    startWorkoutWithPlan(program.name + ' — ' + program.subtitle, exerciseIds);
+    startWorkoutWithPlan(
+      program.name + ' — ' + program.subtitle,
+      program.exercises.map(e => e.exerciseId),
+      program.warmup,
+      program.cooldown,
+      program.exercises.map(e => e.sets),
+    );
   }
 
   if (selected) {

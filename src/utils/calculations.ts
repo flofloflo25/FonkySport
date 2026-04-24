@@ -1,5 +1,56 @@
 import type { SetLog, WorkoutSession, WorkoutExercise } from '@/types';
 
+// ── Default weights (85kg / 1m80 moderately fit beginner) ────────────────────
+
+export const DEFAULT_WEIGHTS: Record<string, number> = {
+  // Chest
+  bench_press: 40, incline_bench: 35, decline_bench: 40,
+  db_bench: 22.5, incline_db_bench: 17.5, db_fly: 12,
+  cable_fly: 8, dips_chest: 0, pushup: 0, machine_chest: 30,
+  // Back
+  deadlift: 60, pullup: 0, chinup: 0, barbell_row: 40,
+  db_row: 22.5, lat_pulldown: 40, cable_row: 40,
+  face_pull: 12.5, shrug: 50, rack_pull: 80,
+  // Shoulders
+  ohp: 30, db_ohp: 15, lateral_raise: 8, front_raise: 7.5,
+  rear_delt_fly: 8, arnold_press: 14, upright_row: 25,
+  // Biceps
+  barbell_curl: 25, db_curl: 12, hammer_curl: 12,
+  preacher_curl: 20, cable_curl: 12, incline_db_curl: 10,
+  concentration_curl: 10,
+  // Triceps
+  tricep_dip: 0, skullcrusher: 22.5, tricep_pushdown: 17.5,
+  overhead_tricep: 14, close_grip_bench: 35, kickback: 10,
+  // Legs
+  squat: 50, front_squat: 40, leg_press: 80,
+  leg_extension: 35, leg_curl: 30, rdl: 50,
+  lunge: 20, bulgarian_squat: 20, hack_squat: 60, goblet_squat: 20,
+  // Glutes
+  hip_thrust: 60, cable_kickback: 10, glute_bridge: 0, abductor: 25,
+  // Calves
+  standing_calf: 40, seated_calf: 30, calf_raise_db: 15,
+  // Abs
+  plank: 0, crunch: 0, leg_raise: 0,
+  cable_crunch: 15, russian_twist: 5, ab_rollout: 0,
+};
+
+// Exercises where "reps" = duration in seconds
+export const TIME_BASED_EXERCISES = new Set<string>(['plank', 'glute_bridge']);
+
+export const DEFAULT_DURATIONS: Record<string, number> = {
+  plank: 30, glute_bridge: 30,
+};
+
+export const DEFAULT_REPS: Record<string, number> = {
+  crunch: 15, leg_raise: 12, russian_twist: 16,
+  cable_crunch: 15, ab_rollout: 8,
+};
+
+export function warmupWeightFor(workWeight: number): number {
+  if (workWeight === 0) return 0;
+  return Math.round((workWeight * 0.6) / 2.5) * 2.5;
+}
+
 // ── 1RM Estimation ────────────────────────────────────────────────────────────
 
 /** Brzycki formula */

@@ -31,9 +31,9 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col min-h-dvh max-w-lg mx-auto">
+    <div className="flex flex-col min-h-dvh max-w-lg mx-auto overflow-x-hidden">
       {/* Page content — scrollable, padded for nav */}
-      <main className="flex-1 overflow-y-auto pb-20">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden pb-20">
         <PageContent />
       </main>
 
