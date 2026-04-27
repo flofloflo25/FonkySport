@@ -169,27 +169,6 @@ function ExerciseReplacePicker({
 
 // ── Duration Timer (plank etc.) ───────────────────────────────────────────────
 
-function playAlarm() {
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const beep = (freq: number, start: number, dur: number) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = freq;
-      osc.type = 'sine';
-      gain.gain.setValueAtTime(0.4, ctx.currentTime + start);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
-      osc.start(ctx.currentTime + start);
-      osc.stop(ctx.currentTime + start + dur + 0.05);
-    };
-    beep(880, 0,    0.15);
-    beep(1100, 0.2, 0.15);
-    beep(1320, 0.4, 0.3);
-  } catch { /* silently fail if audio not available */ }
-}
-
 function DurationTimer({
   targetSec,
   onComplete,
@@ -199,17 +178,16 @@ function DurationTimer({
 }) {
   const [remaining, setRemaining] = useState(targetSec);
   const [running, setRunning]     = useState(false);
-  const endTimeRef = useRef<number | null>(null);
-  const rafRef     = useRef<number | null>(null);
+  const endTimeRef   = useRef<number | null>(null);
+  const intervalRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioCtxRef  = useRef<AudioContext | null>(null);
   const completedRef = useRef(false);
-  // Wake Lock
-  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const wakeLockRef  = useRef<WakeLockSentinel | null>(null);
 
   const acquireWakeLock = useCallback(async () => {
     try {
-      if ('wakeLock' in navigator) {
-        wakeLockRef.current = await navigator.wakeLock.request('screen');
-      }
+      if ('wakeLock' in navigator)
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
     } catch { /* not critical */ }
   }, []);
 
@@ -218,45 +196,81 @@ function DurationTimer({
     wakeLockRef.current = null;
   }, []);
 
-  // Re-acquire wake lock when tab becomes visible again
-  useEffect(() => {
-    const onVisible = () => {
-      if (running && !wakeLockRef.current) acquireWakeLock();
+  // Schedule all audio upfront using the Web Audio clock.
+  // Web Audio continues to play scheduled events even when the screen is locked.
+  function scheduleAudio(ctx: AudioContext, secUntilEnd: number) {
+    const beep = (freq: number, atTime: number, dur: number, vol = 0.35) => {
+      try {
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = freq;
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        gain.gain.setValueAtTime(vol, atTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, atTime + dur);
+        osc.start(atTime);
+        osc.stop(atTime + dur + 0.05);
+      } catch { /* ignore */ }
     };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [running, acquireWakeLock]);
 
-  function tick() {
-    if (!endTimeRef.current) return;
-    const left = Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
-    setRemaining(left);
-    if (left <= 0) {
-      if (!completedRef.current) {
-        completedRef.current = true;
-        playAlarm();
-        releaseWakeLock();
-        setTimeout(onComplete, 800);
-      }
-      return;
+    // Countdown ticks at 5 s, 4 s, 3 s, 2 s, 1 s before end
+    for (let i = Math.min(5, Math.floor(secUntilEnd) - 1); i >= 1; i--) {
+      const t = ctx.currentTime + secUntilEnd - i;
+      if (t > ctx.currentTime + 0.05) beep(880, t, 0.08, 0.25);
     }
-    rafRef.current = requestAnimationFrame(tick);
+
+    // Final alarm
+    const endT = ctx.currentTime + secUntilEnd;
+    if (endT > ctx.currentTime + 0.05) {
+      beep(880,  endT,       0.15);
+      beep(1100, endT + 0.2, 0.15);
+      beep(1320, endT + 0.4, 0.3, 0.5);
+    }
+  }
+
+  function finish() {
+    if (completedRef.current) return;
+    completedRef.current = true;
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = null;
+    releaseWakeLock();
+    setTimeout(onComplete, 900);
   }
 
   function start() {
+    if (remaining <= 0) return;
     completedRef.current = false;
+
+    // Fresh AudioContext each start so we can cancel on pause by closing it
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)() as AudioContext;
+      audioCtxRef.current = ctx;
+      scheduleAudio(ctx, remaining);
+    } catch { /* audio unavailable */ }
+
     endTimeRef.current = Date.now() + remaining * 1000;
     setRunning(true);
     acquireWakeLock();
-    rafRef.current = requestAnimationFrame(tick);
+
+    intervalRef.current = setInterval(() => {
+      if (!endTimeRef.current) return;
+      const left = Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
+      setRemaining(left);
+      if (left <= 0) finish();
+    }, 200);
   }
 
   function pause() {
     setRunning(false);
     releaseWakeLock();
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    endTimeRef.current = null;
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = null;
+    endTimeRef.current  = null;
+    // Closing the context cancels all scheduled sounds
+    audioCtxRef.current?.close().catch(() => {});
+    audioCtxRef.current = null;
   }
 
   function reset() {
@@ -265,20 +279,32 @@ function DurationTimer({
     setRemaining(targetSec);
   }
 
+  // Re-sync display & wake lock when coming back from locked screen
+  useEffect(() => {
+    const onVisible = () => {
+      if (!running || !endTimeRef.current) return;
+      const left = Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
+      setRemaining(left);
+      if (left <= 0) { finish(); return; }
+      if (!wakeLockRef.current) acquireWakeLock();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [running]);
+
   useEffect(() => () => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    audioCtxRef.current?.close().catch(() => {});
     releaseWakeLock();
   }, []);
 
-  const r = 52;
-  const circ = 2 * Math.PI * r;
-  const progress = targetSec > 0 ? (targetSec - remaining) / targetSec : 0;
-
-  const mins = Math.floor(remaining / 60);
-  const secs = remaining % 60;
-  const timeStr = mins > 0
-    ? `${mins}:${secs.toString().padStart(2, '0')}`
-    : `${remaining}`;
+  const r      = 52;
+  const circ   = 2 * Math.PI * r;
+  const progress   = targetSec > 0 ? (targetSec - remaining) / targetSec : 0;
+  const isEndZone  = running && remaining <= 5 && remaining > 0;
+  const mins       = Math.floor(remaining / 60);
+  const secs       = remaining % 60;
+  const timeStr    = mins > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : `${remaining}`;
 
   return (
     <div className="flex flex-col items-center gap-4 py-2">
@@ -287,15 +313,17 @@ function DurationTimer({
           <circle cx="60" cy="60" r={r} fill="none" stroke="#1e1e1e" strokeWidth="8" />
           <circle
             cx="60" cy="60" r={r} fill="none"
-            stroke={remaining === 0 ? '#22c55e' : '#f97316'}
+            stroke={remaining === 0 ? '#22c55e' : isEndZone ? '#ef4444' : '#f97316'}
             strokeWidth="8" strokeLinecap="round"
             strokeDasharray={circ}
             strokeDashoffset={circ * (1 - progress)}
-            style={{ transition: 'stroke-dashoffset 0.1s linear' }}
+            style={{ transition: 'stroke-dashoffset 0.15s linear' }}
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-5xl font-bold tabular-nums leading-none">{timeStr}</span>
+          <span className={`text-5xl font-bold tabular-nums leading-none transition-colors ${isEndZone ? 'text-red-400' : ''}`}>
+            {timeStr}
+          </span>
           <span className="text-xs text-slate-500 mt-1">
             {remaining === 0 ? 'Terminé !' : mins > 0 ? 'min' : 'secondes'}
           </span>
