@@ -592,9 +592,11 @@ function GuidedWorkout() {
       setPhase('rest');
     } else {
       const nextSet = we.sets[setIdx + 1];
+      const isTime  = TIME_BASED_EXERCISES.has(we.exerciseId);
       const nextWeight = nextSet.weight > 0 ? `${nextSet.weight}kg × ` : '';
+      const repsLabel  = isTime ? `${nextSet.reps}s` : `${nextSet.reps} reps`;
       setPending('next-set');
-      setNextLabel(`Série ${setIdx + 2}/${we.sets.length} — ${nextWeight}${nextSet.reps} reps`);
+      setNextLabel(`Série ${setIdx + 2}/${we.sets.length} — ${nextWeight}${repsLabel}`);
       setRestTotal(restSec);
       setRest(restSec);
       setPhase('rest');
@@ -777,10 +779,12 @@ function GuidedWorkout() {
                 <Check size={13} className="text-green-500 flex-shrink-0" />
                 <span className="text-slate-400 text-xs">Série {i + 1}</span>
                 <span className="font-semibold flex-1">
-                  {s.weight > 0 ? `${s.weight}kg × ${s.reps}` : `${s.reps} reps`}
+                  {TIME_BASED_EXERCISES.has(we.exerciseId)
+                    ? `${s.reps}s`
+                    : s.weight > 0 ? `${s.weight}kg × ${s.reps}` : `${s.reps} reps`}
                 </span>
                 {s.rpe && <span className="text-[10px] text-slate-500">RPE {s.rpe}</span>}
-                {s.weight > 0 && s.reps > 0 && (
+                {!TIME_BASED_EXERCISES.has(we.exerciseId) && s.weight > 0 && s.reps > 0 && (
                   <span className="text-[10px] text-slate-600">~{estimate1RM(s.weight, s.reps).toFixed(0)}kg 1RM</span>
                 )}
               </div>
@@ -826,18 +830,26 @@ function GuidedWorkout() {
             {/* Weight + Reps OR Duration timer */}
             {TIME_BASED_EXERCISES.has(we.exerciseId) ? (
               <>
+                {/* Adjust duration before starting — key includes reps so timer resets on change */}
+                <NumStepper
+                  value={currentSet!.reps}
+                  onChange={v => updateSet(safeIdx, currentSetIdx, { reps: Math.max(5, Math.round(v)) })}
+                  step={5}
+                  unit="sec"
+                  label="Durée cible"
+                />
                 <DurationTimer
-                  key={`${we.exerciseId}-${currentSetIdx}`}
+                  key={`${we.exerciseId}-${currentSetIdx}-${currentSet!.reps}`}
                   targetSec={currentSet!.reps}
                   onComplete={() => completeSet(currentSetIdx)}
                 />
-                <NumStepper
-                  value={currentSet!.reps}
-                  onChange={v => updateSet(safeIdx, currentSetIdx, { reps: Math.max(1, Math.round(v)) })}
-                  step={5}
-                  unit="sec"
-                  label="Durée"
-                />
+                <button
+                  onClick={() => completeSet(currentSetIdx)}
+                  className="w-full py-3 bg-[#1a1a1a] hover:bg-[#222] rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors"
+                >
+                  <Check size={15} className="text-green-500" />
+                  Marquer terminé manuellement
+                </button>
               </>
             ) : (
               <div className="flex gap-4">
