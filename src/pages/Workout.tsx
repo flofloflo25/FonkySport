@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Plus, X, Check, Clock, Dumbbell, Search, ArrowLeft,
-  ChevronLeft, ChevronRight, TrendingUp, Play, SkipForward, RefreshCw,
+  ChevronLeft, ChevronRight, TrendingUp, Play, SkipForward, RefreshCw, Flame,
 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { EXERCISES, MUSCLE_GROUPS, EXERCISE_MAP } from '@/data/exercises';
@@ -510,9 +510,80 @@ function RestScreen({
   );
 }
 
+// ── Step Phase (warmup & cooldown) ───────────────────────────────────────────
+
+function StepPhase({
+  title, subtitle, steps, stepIdx, onNext, onPrev, onSkip,
+  skipLabel, finishLabel, elapsed, workoutName, icon, children,
+}: {
+  title: string; subtitle: string; steps: string[]; stepIdx: number;
+  onNext: () => void; onPrev: () => void; onSkip: () => void;
+  skipLabel: string; finishLabel: string;
+  elapsed: string; workoutName: string;
+  icon: React.ReactNode; children?: React.ReactNode;
+}) {
+  const isLast = stepIdx >= steps.length - 1;
+  return (
+    <div className="flex flex-col min-h-[calc(100dvh-5rem)]">
+      {/* Header */}
+      <div className="px-4 pt-12 pb-3 border-b border-[#1e1e1e]">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="text-xs text-slate-500 truncate max-w-[200px]">{workoutName}</p>
+            <div className="flex items-center gap-2 text-xs text-slate-600 mt-0.5">
+              <Clock size={11} /><span>{elapsed}</span>
+            </div>
+          </div>
+          <button onClick={onSkip}
+            className="text-xs text-slate-500 hover:text-slate-300 bg-[#1a1a1a] px-3 py-1.5 rounded-lg">
+            {skipLabel}
+          </button>
+        </div>
+        {/* Step progress bar */}
+        <div className="flex gap-1.5">
+          {steps.map((_, i) => (
+            <div key={i} className={`flex-1 h-1 rounded-full transition-colors ${
+              i < stepIdx ? 'bg-green-500' : i === stepIdx ? 'bg-orange-500' : 'bg-[#1a1a1a]'
+            }`} />
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 flex flex-col items-center justify-center px-6 gap-6 text-center">
+        <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+          {icon}
+          {title} — {subtitle} · Étape {stepIdx + 1}/{steps.length}
+        </div>
+        <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl p-6 w-full">
+          <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center mx-auto mb-4">
+            <span className="text-orange-400 font-bold text-lg">{stepIdx + 1}</span>
+          </div>
+          <p className="text-lg font-semibold leading-relaxed">{steps[stepIdx]}</p>
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <div className="px-4 pb-6 flex gap-3">
+        <button onClick={onPrev} disabled={stepIdx === 0}
+          className="w-12 h-14 flex items-center justify-center bg-[#1a1a1a] hover:bg-[#222] disabled:opacity-30 rounded-2xl transition-colors">
+          <ChevronLeft size={18} />
+        </button>
+        <button onClick={onNext}
+          className="flex-1 py-4 bg-orange-500 hover:bg-orange-400 rounded-2xl font-bold text-base transition-colors">
+          {isLast ? finishLabel : 'Étape suivante →'}
+        </button>
+      </div>
+
+      {children}
+    </div>
+  );
+}
+
 // ── Guided Workout ────────────────────────────────────────────────────────────
 
 type Phase = 'exercise' | 'rest';
+type Section = 'warmup' | 'main' | 'cooldown';
 type PendingAction = 'next-set' | 'next-exercise' | 'finish';
 
 function GuidedWorkout() {
@@ -529,12 +600,17 @@ function GuidedWorkout() {
     getRecommendationFor: s.getRecommendationFor,
   }));
 
+  const warmupSteps   = activeWorkout.warmupSteps  ?? [];
+  const cooldownSteps = activeWorkout.cooldownSteps ?? [];
+
   const [exIdx, setExIdx]         = useState(0);
   const [phase, setPhase]         = useState<Phase>('exercise');
   const [restRemaining, setRest]  = useState(0);
   const [restTotal, setRestTotal] = useState(0);
   const [nextLabel, setNextLabel] = useState('');
   const [pending, setPending]     = useState<PendingAction>('next-set');
+  const [section, setSection]     = useState<Section>(warmupSteps.length > 0 ? 'warmup' : 'main');
+  const [stepIdx, setStepIdx]     = useState(0);
   const [showPicker, setShowPicker]   = useState(false);
   const [showReplace, setShowReplace] = useState(false);
   const [showFinish, setShowFinish]   = useState(false);
@@ -562,10 +638,25 @@ function GuidedWorkout() {
       setExIdx(i => i + 1);
       setShowRec(false);
     } else if (pending === 'finish') {
-      setShowFinish(true);
+      if (cooldownSteps.length > 0) {
+        setSection('cooldown');
+        setStepIdx(0);
+      } else {
+        setShowFinish(true);
+      }
     }
     // 'next-set': stay on same exercise; next incomplete set is auto-derived
-  }, [pending]);
+  }, [pending, cooldownSteps.length]);
+
+  function nextWarmupStep() {
+    if (stepIdx < warmupSteps.length - 1) setStepIdx(i => i + 1);
+    else { setSection('main'); setStepIdx(0); }
+  }
+
+  function nextCooldownStep() {
+    if (stepIdx < cooldownSteps.length - 1) setStepIdx(i => i + 1);
+    else setShowFinish(true);
+  }
 
   function completeSet(setIdx: number) {
     const exercises = activeWorkout.exercises;
@@ -601,6 +692,47 @@ function GuidedWorkout() {
       setRest(restSec);
       setPhase('rest');
     }
+  }
+
+  const finishModal = showFinish ? (
+    <FinishModal
+      onConfirm={notes => { finishWorkout(notes); setShowFinish(false); }}
+      onCancel={() => setShowFinish(false)}
+    />
+  ) : null;
+
+  // ── Warmup phase ────────────────────────────────────────────────────────────
+  if (section === 'warmup') {
+    return (
+      <StepPhase
+        title="Échauffement" subtitle="5 min"
+        steps={warmupSteps} stepIdx={stepIdx}
+        onNext={nextWarmupStep}
+        onPrev={() => setStepIdx(i => Math.max(0, i - 1))}
+        onSkip={() => { setSection('main'); setStepIdx(0); }}
+        skipLabel="Passer →"
+        finishLabel="Commencer la séance"
+        elapsed={elapsed} workoutName={activeWorkout.name}
+        icon={<Flame size={13} className="text-orange-400" />}
+      >{finishModal}</StepPhase>
+    );
+  }
+
+  // ── Cooldown phase ──────────────────────────────────────────────────────────
+  if (section === 'cooldown') {
+    return (
+      <StepPhase
+        title="Étirements" subtitle="5 min"
+        steps={cooldownSteps} stepIdx={stepIdx}
+        onNext={nextCooldownStep}
+        onPrev={() => setStepIdx(i => Math.max(0, i - 1))}
+        onSkip={() => setShowFinish(true)}
+        skipLabel="Terminer →"
+        finishLabel="Terminer la séance"
+        elapsed={elapsed} workoutName={activeWorkout.name}
+        icon={<span className="text-sm leading-none">🧘</span>}
+      >{finishModal}</StepPhase>
+    );
   }
 
   // Empty workout
@@ -777,7 +909,10 @@ function GuidedWorkout() {
               <div key={s.id}
                 className="flex items-center gap-3 px-3 py-2 bg-green-500/5 border border-green-500/10 rounded-xl text-sm">
                 <Check size={13} className="text-green-500 flex-shrink-0" />
-                <span className="text-slate-400 text-xs">Série {i + 1}</span>
+                <span className="text-slate-400 text-xs flex items-center gap-1">
+                  Série {i + 1}
+                  {i === 0 && <Flame size={9} className="text-orange-400" />}
+                </span>
                 <span className="font-semibold flex-1">
                   {TIME_BASED_EXERCISES.has(we.exerciseId)
                     ? `${s.reps}s`
@@ -815,9 +950,17 @@ function GuidedWorkout() {
           <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl p-4 flex flex-col gap-5">
             {/* Set label */}
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                Série {currentSetIdx + 1} / {we.sets.length}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                  Série {currentSetIdx + 1} / {we.sets.length}
+                </span>
+                {currentSetIdx === 0 && (
+                  <span className="flex items-center gap-0.5 text-[10px] bg-orange-500/10 text-orange-400 px-1.5 py-0.5 rounded-full font-semibold">
+                    <Flame size={9} />
+                    Échauffement
+                  </span>
+                )}
+              </div>
               <div className="flex gap-1">
                 {we.sets.map((s, i) => (
                   <div key={i} className={`w-2 h-2 rounded-full ${
@@ -932,12 +1075,7 @@ function GuidedWorkout() {
         />
       )}
 
-      {showFinish && (
-        <FinishModal
-          onConfirm={notes => { finishWorkout(notes); setShowFinish(false); }}
-          onCancel={() => setShowFinish(false)}
-        />
-      )}
+      {finishModal}
     </div>
   );
 }
