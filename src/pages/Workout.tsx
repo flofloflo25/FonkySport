@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Plus, X, Check, Clock, Dumbbell, Search, ArrowLeft,
-  ChevronLeft, ChevronRight, TrendingUp, Play, SkipForward,
+  ChevronLeft, ChevronRight, TrendingUp, Play, SkipForward, RefreshCw,
 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { EXERCISES, MUSCLE_GROUPS, EXERCISE_MAP } from '@/data/exercises';
 import type { Exercise, MuscleGroup } from '@/types';
-import { estimate1RM } from '@/utils/calculations';
+import { estimate1RM, TIME_BASED_EXERCISES } from '@/utils/calculations';
 
 // ── Exercise Picker (unchanged) ───────────────────────────────────────────────
 
@@ -76,6 +76,249 @@ function FilterChip({ label, active, onClick }: { label: string; active: boolean
       }`}>
       {label}
     </button>
+  );
+}
+
+// ── Exercise Replace Picker ───────────────────────────────────────────────────
+
+function ExerciseReplacePicker({
+  currentMuscles,
+  onSelect,
+  onClose,
+}: {
+  currentMuscles: MuscleGroup[];
+  onSelect: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [filterMuscle, setFilterMuscle] = useState<MuscleGroup | 'all'>(
+    currentMuscles.length > 0 ? currentMuscles[0] : 'all'
+  );
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const filtered = EXERCISES.filter(e => {
+    const matchQuery = e.name.toLowerCase().includes(query.toLowerCase());
+    const matchMuscle = filterMuscle === 'all' || e.muscles.includes(filterMuscle);
+    return matchQuery && matchMuscle;
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 bg-[#0a0a0a] flex flex-col animate-slide-up">
+      <div className="flex items-center gap-3 p-4 border-b border-[#1e1e1e]">
+        <button onClick={onClose} className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-[#1a1a1a]">
+          <ArrowLeft size={20} />
+        </button>
+        <div className="flex-1">
+          <div className="text-sm font-semibold">Remplacer l&apos;exercice</div>
+          <div className="text-[10px] text-slate-500">Mêmes muscles ciblés</div>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-[#1e1e1e]">
+        <div className="flex-1 flex items-center gap-3 bg-[#1a1a1a] rounded-xl px-3 py-2.5">
+          <Search size={16} className="text-slate-500" />
+          <input ref={inputRef} type="text" value={query} onChange={e => setQuery(e.target.value)}
+            placeholder="Rechercher..." className="flex-1 bg-transparent text-sm focus:outline-none" />
+          {query && <button onClick={() => setQuery('')} className="text-slate-500"><X size={14} /></button>}
+        </div>
+      </div>
+      <div className="flex gap-2 px-3 py-2.5 overflow-x-auto scrollbar-none border-b border-[#1e1e1e]">
+        <FilterChip label="Tous" active={filterMuscle === 'all'} onClick={() => setFilterMuscle('all')} />
+        {currentMuscles.map(m => {
+          const mg = MUSCLE_GROUPS.find(g => g.id === m);
+          return mg ? (
+            <FilterChip key={m} label={mg.label} active={filterMuscle === m}
+              onClick={() => setFilterMuscle(m)} />
+          ) : null;
+        })}
+        {MUSCLE_GROUPS.filter(g => !currentMuscles.includes(g.id as MuscleGroup)).map(mg => (
+          <FilterChip key={mg.id} label={mg.label} active={filterMuscle === mg.id as MuscleGroup}
+            onClick={() => setFilterMuscle(mg.id as MuscleGroup)} />
+        ))}
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {filtered.length === 0 && (
+          <div className="text-center py-12 text-slate-500">
+            <Dumbbell size={32} className="mx-auto mb-2 opacity-50" />
+            <p>Aucun exercice trouvé</p>
+          </div>
+        )}
+        {filtered.map(exercise => (
+          <button key={exercise.id} onClick={() => { onSelect(exercise.id); onClose(); }}
+            className="w-full flex items-center gap-4 p-4 hover:bg-[#141414] border-b border-[#111] text-left">
+            <div className="w-10 h-10 bg-[#1a1a1a] rounded-xl flex items-center justify-center flex-shrink-0">
+              <Dumbbell size={18} className="text-slate-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium truncate">{exercise.name}</div>
+              <div className="text-[10px] text-slate-500 mt-0.5 capitalize">
+                {exercise.category} · {exercise.muscles.slice(0, 2).join(', ')}
+              </div>
+            </div>
+            {currentMuscles.some(m => exercise.muscles.includes(m)) && (
+              <span className="text-[10px] text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                Même muscle
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Duration Timer (plank etc.) ───────────────────────────────────────────────
+
+function playAlarm() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const beep = (freq: number, start: number, dur: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.4, ctx.currentTime + start);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + dur + 0.05);
+    };
+    beep(880, 0,    0.15);
+    beep(1100, 0.2, 0.15);
+    beep(1320, 0.4, 0.3);
+  } catch { /* silently fail if audio not available */ }
+}
+
+function DurationTimer({
+  targetSec,
+  onComplete,
+}: {
+  targetSec: number;
+  onComplete: () => void;
+}) {
+  const [remaining, setRemaining] = useState(targetSec);
+  const [running, setRunning]     = useState(false);
+  const endTimeRef = useRef<number | null>(null);
+  const rafRef     = useRef<number | null>(null);
+  const completedRef = useRef(false);
+  // Wake Lock
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+
+  const acquireWakeLock = useCallback(async () => {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLockRef.current = await navigator.wakeLock.request('screen');
+      }
+    } catch { /* not critical */ }
+  }, []);
+
+  const releaseWakeLock = useCallback(() => {
+    wakeLockRef.current?.release().catch(() => {});
+    wakeLockRef.current = null;
+  }, []);
+
+  // Re-acquire wake lock when tab becomes visible again
+  useEffect(() => {
+    const onVisible = () => {
+      if (running && !wakeLockRef.current) acquireWakeLock();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [running, acquireWakeLock]);
+
+  function tick() {
+    if (!endTimeRef.current) return;
+    const left = Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
+    setRemaining(left);
+    if (left <= 0) {
+      if (!completedRef.current) {
+        completedRef.current = true;
+        playAlarm();
+        releaseWakeLock();
+        setTimeout(onComplete, 800);
+      }
+      return;
+    }
+    rafRef.current = requestAnimationFrame(tick);
+  }
+
+  function start() {
+    completedRef.current = false;
+    endTimeRef.current = Date.now() + remaining * 1000;
+    setRunning(true);
+    acquireWakeLock();
+    rafRef.current = requestAnimationFrame(tick);
+  }
+
+  function pause() {
+    setRunning(false);
+    releaseWakeLock();
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    endTimeRef.current = null;
+  }
+
+  function reset() {
+    pause();
+    completedRef.current = false;
+    setRemaining(targetSec);
+  }
+
+  useEffect(() => () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    releaseWakeLock();
+  }, []);
+
+  const r = 52;
+  const circ = 2 * Math.PI * r;
+  const progress = targetSec > 0 ? (targetSec - remaining) / targetSec : 0;
+
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  const timeStr = mins > 0
+    ? `${mins}:${secs.toString().padStart(2, '0')}`
+    : `${remaining}`;
+
+  return (
+    <div className="flex flex-col items-center gap-4 py-2">
+      <div className="relative w-44 h-44">
+        <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r={r} fill="none" stroke="#1e1e1e" strokeWidth="8" />
+          <circle
+            cx="60" cy="60" r={r} fill="none"
+            stroke={remaining === 0 ? '#22c55e' : '#f97316'}
+            strokeWidth="8" strokeLinecap="round"
+            strokeDasharray={circ}
+            strokeDashoffset={circ * (1 - progress)}
+            style={{ transition: 'stroke-dashoffset 0.1s linear' }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-5xl font-bold tabular-nums leading-none">{timeStr}</span>
+          <span className="text-xs text-slate-500 mt-1">
+            {remaining === 0 ? 'Terminé !' : mins > 0 ? 'min' : 'secondes'}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        {remaining > 0 && (
+          <button
+            onClick={running ? pause : start}
+            className="flex items-center gap-2 px-6 py-2.5 bg-orange-500 hover:bg-orange-400 rounded-2xl font-semibold text-sm transition-colors"
+          >
+            {running ? '⏸ Pause' : <><Play size={14} /> Démarrer</>}
+          </button>
+        )}
+        <button
+          onClick={reset}
+          className="w-10 h-10 flex items-center justify-center rounded-xl bg-[#1a1a1a] hover:bg-[#222] text-slate-400"
+        >
+          <RefreshCw size={14} />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -247,11 +490,12 @@ type PendingAction = 'next-set' | 'next-exercise' | 'finish';
 function GuidedWorkout() {
   const {
     activeWorkout, cancelWorkout, addExerciseToWorkout,
-    updateSet, finishWorkout, getRecommendationFor,
+    replaceExerciseInWorkout, updateSet, finishWorkout, getRecommendationFor,
   } = useStore(s => ({
     activeWorkout: s.activeWorkout!,
     cancelWorkout: s.cancelWorkout,
     addExerciseToWorkout: s.addExerciseToWorkout,
+    replaceExerciseInWorkout: s.replaceExerciseInWorkout,
     updateSet: s.updateSet,
     finishWorkout: s.finishWorkout,
     getRecommendationFor: s.getRecommendationFor,
@@ -264,6 +508,7 @@ function GuidedWorkout() {
   const [nextLabel, setNextLabel] = useState('');
   const [pending, setPending]     = useState<PendingAction>('next-set');
   const [showPicker, setShowPicker]   = useState(false);
+  const [showReplace, setShowReplace] = useState(false);
   const [showFinish, setShowFinish]   = useState(false);
   const [showRec, setShowRec]         = useState(false);
 
@@ -466,10 +711,18 @@ function GuidedWorkout() {
               {ex?.muscles.join(' · ')} · {ex?.category === 'compound' ? 'Composé' : 'Isolation'}
             </p>
           </div>
-          <button onClick={() => setShowRec(v => !v)}
-            className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors ${showRec ? 'bg-orange-500/20 text-orange-400' : 'bg-[#1a1a1a] text-slate-500 hover:text-slate-300'}`}>
-            <TrendingUp size={15} />
-          </button>
+          <div className="flex gap-1.5">
+            <button onClick={() => setShowReplace(true)}
+              className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#1a1a1a] text-slate-500 hover:text-slate-300 transition-colors"
+              title="Remplacer l'exercice"
+            >
+              <RefreshCw size={14} />
+            </button>
+            <button onClick={() => setShowRec(v => !v)}
+              className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors ${showRec ? 'bg-orange-500/20 text-orange-400' : 'bg-[#1a1a1a] text-slate-500 hover:text-slate-300'}`}>
+              <TrendingUp size={15} />
+            </button>
+          </div>
         </div>
 
         {/* Recommendation */}
@@ -542,40 +795,61 @@ function GuidedWorkout() {
               </div>
             </div>
 
-            {/* Weight + Reps steppers */}
-            <div className="flex gap-4">
-              <NumStepper
-                value={currentSet!.weight}
-                onChange={v => updateSet(safeIdx, currentSetIdx, { weight: v })}
-                step={ex?.category === 'compound' ? 2.5 : 1}
-                unit="kg"
-                label="Charge"
-              />
-              <div className="w-px bg-[#1e1e1e]" />
-              <NumStepper
-                value={currentSet!.reps}
-                onChange={v => updateSet(safeIdx, currentSetIdx, { reps: Math.max(0, Math.round(v)) })}
-                step={1}
-                unit="reps"
-                label="Répétitions"
-              />
-            </div>
+            {/* Weight + Reps OR Duration timer */}
+            {TIME_BASED_EXERCISES.has(we.exerciseId) ? (
+              <>
+                <DurationTimer
+                  key={`${we.exerciseId}-${currentSetIdx}`}
+                  targetSec={currentSet!.reps}
+                  onComplete={() => completeSet(currentSetIdx)}
+                />
+                <NumStepper
+                  value={currentSet!.reps}
+                  onChange={v => updateSet(safeIdx, currentSetIdx, { reps: Math.max(1, Math.round(v)) })}
+                  step={5}
+                  unit="sec"
+                  label="Durée"
+                />
+              </>
+            ) : (
+              <div className="flex gap-4">
+                <NumStepper
+                  value={currentSet!.weight}
+                  onChange={v => updateSet(safeIdx, currentSetIdx, { weight: v })}
+                  step={ex?.category === 'compound' ? 2.5 : 1}
+                  unit="kg"
+                  label="Charge"
+                />
+                <div className="w-px bg-[#1e1e1e]" />
+                <NumStepper
+                  value={currentSet!.reps}
+                  onChange={v => updateSet(safeIdx, currentSetIdx, { reps: Math.max(0, Math.round(v)) })}
+                  step={1}
+                  unit="reps"
+                  label="Répétitions"
+                />
+              </div>
+            )}
 
-            {/* RPE */}
-            <RpeSelector
-              value={currentSet!.rpe}
-              onChange={rpe => updateSet(safeIdx, currentSetIdx, { rpe })}
-            />
+            {/* RPE (not shown for time-based) */}
+            {!TIME_BASED_EXERCISES.has(we.exerciseId) && (
+              <RpeSelector
+                value={currentSet!.rpe}
+                onChange={rpe => updateSet(safeIdx, currentSetIdx, { rpe })}
+              />
+            )}
 
-            {/* Complete button */}
-            <button
-              onClick={() => completeSet(currentSetIdx)}
-              disabled={currentSet!.reps === 0}
-              className="w-full py-4 bg-orange-500 hover:bg-orange-400 disabled:opacity-40 disabled:cursor-not-allowed rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-colors active:scale-[0.98]"
-            >
-              <Check size={18} />
-              Série terminée
-            </button>
+            {/* Complete button — auto-triggered by DurationTimer for time-based */}
+            {!TIME_BASED_EXERCISES.has(we.exerciseId) && (
+              <button
+                onClick={() => completeSet(currentSetIdx)}
+                disabled={currentSet!.reps === 0}
+                className="w-full py-4 bg-orange-500 hover:bg-orange-400 disabled:opacity-40 disabled:cursor-not-allowed rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-colors active:scale-[0.98]"
+              >
+                <Check size={18} />
+                Série terminée
+              </button>
+            )}
           </div>
         )}
 
@@ -607,6 +881,14 @@ function GuidedWorkout() {
         <ExercisePicker
           onSelect={id => { addExerciseToWorkout(id); setShowPicker(false); }}
           onClose={() => setShowPicker(false)}
+        />
+      )}
+
+      {showReplace && ex && (
+        <ExerciseReplacePicker
+          currentMuscles={ex.muscles}
+          onSelect={id => { replaceExerciseInWorkout(safeIdx, id); setShowReplace(false); setShowRec(false); }}
+          onClose={() => setShowReplace(false)}
         />
       )}
 
